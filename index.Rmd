@@ -1,0 +1,85 @@
+---
+title: "À boire !"
+output: 
+  html_document:
+    self_contained: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+```
+
+Ça y est, c'est l'été. Enfin, officiellement, ça ne commence que dans quelques jours, mais cette information capitale est sur les lèvres de toutes les Marseillaises et tous les Marseillais (oui, période électorale oblige, je décline, comme un politique) : il fait chaud. On étouffe. On a soif. Et qui dit soif, dit boire. Qui dit boire... dit bars, cafés, pubs, salons de thé, voire [débits de lait](https://www.youtube.com/watch?v=qvmje4bMs_8), bref, un endroit où on peut se désaltérer !
+
+Du coup, en exclusivité planétaire pour Marsactu, votre chroniqueur data/analyste politique/blogueur lifestyle/guide touristique s'est intéressé aux débits de boisson à Marseille. 
+
+```{r packages}
+library(sf)
+library(leaflet)
+library(tidyverse)
+library(banR)
+library(sp)
+```
+
+```{r}
+# la géoloc d'ODS est fausse...
+bars <- read_csv2("./sirene.csv")
+bars <- bars %>% 
+  mutate(CODGEO = paste0(`Département de localisation de l'établissement`,  `Commune de localisation de l'établissement`))
+
+
+
+bars <- bars %>% 
+  filter(CODGEO %in% 13201:13216) %>%
+  bind_cols(
+    bars %>% 
+    filter(CODGEO %in% 13201:13216) %>% 
+    geocode_df("Quatrième ligne de l’adressage déclaré pour l’établissement", code_insee = "CODGEO")
+    ) %>% 
+  filter(!is.na(longitude))
+
+coordinates(bars) <- c("longitude", "latitude")
+proj4string(bars) <- CRS("+proj=longlat +datum=WGS84")
+# bars <- st_as_sf(bars)
+# 
+bars %>%
+  leaflet() %>%
+  addTiles() %>%
+  addCircles(radius = 10, opacity = 0.5, popup = ~ `Enseigne ou nom de l'exploitation`)
+
+```
+
+À en croire le SIRENE (la base de tous les établissements économiques en France), Marseille compterait 926 débits de boisson, représentés sur la carte ci-dessus (cliquer sur les points pour voir l'enseigne). Gageons que la donnée n'est pas parfaite, mais que l'ordre de grandeur est le bon. Soit un peu plus d'un bistrot pour un millier d'habitants -- c'est mieux que la moyenne nationale, mais affrontons la dure vérité en face : Marseille n'est pas une grande ville de bistrots. Comme l'avait [montré Datamix](http://www.datamix.fr/2017/04/bistrographie/), la densité en débits de boissons dépasse parfois les 20 pour 10 000 habitants (soit deux fois qu'à Marseille), notamment dans des zones montagneuses, mais aussi dans le Nord et en Bretagne. Marseille ne figure ainsi pas dans le glorieux palmarès des dix villes les plus équipées en débits de boisson établi par Datamix...
+
+Surtout, la ville est inégalement desservie en bar. Sur la carte ci-dessous, on voit la densité en bars par petits carreaux -- lorsqu'il n'y a pas de bar dans le carreau, il n'est pas dessiné. Autour du vieux port, dans le quartier de l'Opéra, la densité de bars est forte. À mesure qu'on s'en éloigne, cette densité diminue - de sorte qu'on observe de véritables déserts de débits de boissons, dans les quartiers périphériques, mais aussi dans les quartiers sur lorsqu'on s'éloigne du littoral. Il n'y a ainsi quasiment pas de débit de boisson au Roucas Blanc ou à Périer. Dans l'ensemble, les quartiers Nord semblent plutôt moins mal desservis. On trouve des bars à Saint-Mauront, La Cabucelle ou encore Saint-Henri. 
+
+```{r, include=FALSE}
+bars <- spTransform(bars, CRSobj = CRS("+init=epsg:2154"))
+
+bars <- coordinates(bars) %>% as_data_frame()
+
+bars$valeur <- 1
+
+library(btb)
+
+bars <- bars %>% 
+  mutate(x = longitude, 
+         y = latitude) %>% 
+  mutate(valeur = 1) %>% 
+  dplyr::select(x, y, valeur)
+
+test <- kernelSmoothing(bars, cellSize = 300, bandwidth = 300, vQuantiles = 0.5)
+
+grid <- smoothingToGrid(test, epsg = "2154")
+grid <- spTransform(grid, CRSobj = CRS("+proj=longlat +datum=WGS84"))
+```
+
+```{r}
+library(mapview)
+mapview(grid, z = "nbObs", col.regions = RColorBrewer::brewer.pal(9, "Oranges"))@map
+```
+
+Contrairement à d'autres commerces ou services publics, le débit de boisson n'est ainsi pas un indicateur du caractère aisé d'un quartier. Il indique plutôt sa centralité (éventuellement nocturne !), la sociabilité qui y a cours, une certaine forme de lien social. Alors... courons vite boire un coup !
+
+
+*Comme d'habitude, le code et les données sont [disponibles sur github](www.github.com/joelgombin/bars). Les données du SIRENE ont été préprocessées par [OpenDataSoft](https://public.opendatasoft.com/explore/dataset/sirene/).*
